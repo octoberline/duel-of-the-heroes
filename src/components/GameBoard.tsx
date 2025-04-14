@@ -9,7 +9,7 @@ import EquipmentCard from './EquipmentCard';
 import Shop from './Shop';
 import PlayerStats from './PlayerStats';
 import { Button } from '@/components/ui/button';
-import { Coins, Sword, Users, Flag, ArrowRightCircle } from 'lucide-react';
+import { Coins, Sword, Users, Flag, ArrowRightCircle, Shield } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 
 const GameBoard: React.FC = () => {
@@ -35,7 +35,8 @@ const GameBoard: React.FC = () => {
     actionPhase,
     winner,
     selectedCard,
-    targetingMode
+    targetingMode,
+    actionsUsed
   } = gameState;
 
   React.useEffect(() => {
@@ -56,15 +57,56 @@ const GameBoard: React.FC = () => {
     });
   };
 
+  const hasProvocateur = (playerIndex: number) => {
+    return players[playerIndex].units.some(unit => unit.role === 'provocateur');
+  };
+
+  const getProvocateurIndex = (playerIndex: number) => {
+    return players[playerIndex].units.findIndex(unit => unit.role === 'provocateur');
+  };
+
+  const isValidTarget = (targetType: 'hero' | 'unit' | 'monster', targetPlayerId?: number, index?: number) => {
+    if (!targetingMode || !targetPlayerId) return false;
+    
+    const enemyPlayerIndex = targetPlayerId - 1;
+    const hasEnemyProvocateur = hasProvocateur(enemyPlayerIndex);
+    
+    if (!hasEnemyProvocateur) return true;
+    
+    // If enemy has provocateur, only the provocateur can be targeted
+    if (targetType === 'unit') {
+      const provocateurIndex = getProvocateurIndex(enemyPlayerIndex);
+      return index === provocateurIndex;
+    }
+    
+    // Can't target hero if provocateur exists
+    return false;
+  };
+
   const handleCardSelect = (cardType: 'hero' | 'unit', card: any, index?: number) => {
-    if (!targetingMode && ((cardType === 'hero' && actionPhase === 'heroAction') || 
-        (cardType === 'unit' && actionPhase === 'unitAction'))) {
+    if (!targetingMode && 
+        ((cardType === 'hero' && actionPhase === 'heroAction' && !actionsUsed.heroAction) || 
+         (cardType === 'unit' && actionPhase === 'unitAction' && !actionsUsed.unitAction))) {
       selectCard(card, cardType, index);
     }
   };
 
   const handleTargetSelect = (targetType: 'hero' | 'unit' | 'monster', targetPlayerId?: number, index?: number) => {
     if (targetingMode && selectedCard) {
+      if (targetType !== 'monster' && targetPlayerId) {
+        // Check for provocateur when targeting enemy units or hero
+        if (!isValidTarget(targetType, targetPlayerId, index)) {
+          if (hasProvocateur(targetPlayerId - 1)) {
+            toast({
+              title: "Cannot attack!",
+              description: "You must attack the provocateur unit first!",
+              variant: "destructive"
+            });
+            return;
+          }
+        }
+      }
+      
       attack({ type: targetType, playerId: targetPlayerId, index });
     }
   };
@@ -119,19 +161,23 @@ const GameBoard: React.FC = () => {
   const renderPhaseIndicator = () => {
     let phaseText = '';
     let phaseIcon = null;
+    let actionsRemaining = '';
 
     switch (actionPhase) {
       case 'buy':
         phaseText = 'Buy Phase';
         phaseIcon = <Coins className="h-5 w-5" />;
+        actionsRemaining = actionsUsed.buy ? '(Action used)' : '(1 purchase available)';
         break;
       case 'heroAction':
         phaseText = 'Hero Action Phase';
         phaseIcon = <Sword className="h-5 w-5" />;
+        actionsRemaining = actionsUsed.heroAction ? '(Action used)' : '(1 attack available)';
         break;
       case 'unitAction':
         phaseText = 'Unit Action Phase';
         phaseIcon = <Users className="h-5 w-5" />;
+        actionsRemaining = actionsUsed.unitAction ? '(Action used)' : '(1 attack available)';
         break;
       case 'end':
         phaseText = 'End Turn';
@@ -140,9 +186,12 @@ const GameBoard: React.FC = () => {
     }
 
     return (
-      <div className="flex items-center gap-2 bg-black bg-opacity-50 px-4 py-2 rounded-full">
-        {phaseIcon}
-        <span className="font-semibold">{phaseText}</span>
+      <div className="flex flex-col items-center gap-1">
+        <div className="flex items-center gap-2 bg-black bg-opacity-50 px-4 py-2 rounded-full">
+          {phaseIcon}
+          <span className="font-semibold">{phaseText}</span>
+        </div>
+        <div className="text-sm text-gray-300">{actionsRemaining}</div>
       </div>
     );
   };
@@ -152,7 +201,9 @@ const GameBoard: React.FC = () => {
     const otherPlayerObj = players[currentPlayer === 1 ? 1 : 0];
     
     // Determine if cards are targetable
-    const isEnemyHeroTargetable = targetingMode && selectedCard;
+    const isEnemyHeroTargetable = targetingMode && selectedCard && 
+      !hasProvocateur(currentPlayer === 1 ? 1 : 0);
+    
     const areEnemyUnitsTargetable = targetingMode && selectedCard;
     const areMonstersTargetable = targetingMode && selectedCard;
     
@@ -243,6 +294,7 @@ const GameBoard: React.FC = () => {
                 shopCards={shop}
                 playerGold={currentPlayerObj.gold}
                 onBuyCard={buyCard}
+                disabled={actionsUsed.buy}
               />
             )}
             

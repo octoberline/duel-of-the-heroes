@@ -1,7 +1,7 @@
-
 export type CardType = 'hero' | 'unit' | 'monster' | 'equipment';
 export type EquipmentType = 'weapon' | 'armor';
 export type DamageType = 'physical' | 'magical' | 'elemental';
+export type UnitRole = 'standard' | 'provocateur';
 
 export interface BaseCard {
   id: string;
@@ -26,6 +26,7 @@ export interface UnitCard extends BaseCard {
   maxHealth: number;
   attack: number;
   cost: number;
+  role?: UnitRole;
 }
 
 export interface MonsterCard extends BaseCard {
@@ -46,7 +47,6 @@ export interface EquipmentCard extends BaseCard {
 
 export type Card = HeroCard | UnitCard | MonsterCard | EquipmentCard;
 
-// Hero Cards
 export const heroes: HeroCard[] = [
   {
     id: 'hero-warrior',
@@ -86,7 +86,6 @@ export const heroes: HeroCard[] = [
   }
 ];
 
-// Unit Cards
 export const units: UnitCard[] = [
   {
     id: 'unit-knight',
@@ -142,10 +141,21 @@ export const units: UnitCard[] = [
     maxHealth: 4,
     attack: 7,
     cost: 7
+  },
+  {
+    id: 'unit-provocateur',
+    name: 'Royal Guard',
+    type: 'unit',
+    image: 'knight',
+    description: 'A valiant protector that draws all attacks while alive',
+    health: 15,
+    maxHealth: 15,
+    attack: 2,
+    cost: 8,
+    role: 'provocateur'
   }
 ];
 
-// Monster Cards
 export const monsters: MonsterCard[] = [
   {
     id: 'monster-goblin',
@@ -193,7 +203,6 @@ export const monsters: MonsterCard[] = [
   }
 ];
 
-// Equipment Cards
 export const equipments: EquipmentCard[] = [
   {
     id: 'equipment-sword',
@@ -252,7 +261,6 @@ export const equipments: EquipmentCard[] = [
   }
 ];
 
-// Helper functions
 export const getRandomUnits = (count: number): UnitCard[] => {
   const shuffled = [...units].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, count);

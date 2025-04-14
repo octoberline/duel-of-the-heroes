@@ -33,6 +33,11 @@ export type GameState = {
   winner: number | null;
   selectedCard: { card: any; type: 'hero' | 'unit'; index?: number } | null;
   targetingMode: boolean;
+  actionsUsed: {
+    buy: boolean;
+    heroAction: boolean;
+    unitAction: boolean;
+  };
 };
 
 const initialPlayer: Player = {
@@ -58,7 +63,12 @@ const initialGameState: GameState = {
   actionPhase: 'buy',
   winner: null,
   selectedCard: null,
-  targetingMode: false
+  targetingMode: false,
+  actionsUsed: {
+    buy: false,
+    heroAction: false,
+    unitAction: false
+  }
 };
 
 export const useGameState = () => {
@@ -107,7 +117,12 @@ export const useGameState = () => {
         gamePhase: newGamePhase,
         actionPhase: newGamePhase === 'player1Turn' ? 'buy' : prevState.actionPhase,
         monsters: newMonsters,
-        shop: newShop
+        shop: newShop,
+        actionsUsed: {
+          buy: false,
+          heroAction: false,
+          unitAction: false
+        }
       };
     });
   }, []);
@@ -130,7 +145,12 @@ export const useGameState = () => {
           ...prevState.players.slice(0, playerIndex),
           { ...player, gold: newGold },
           ...prevState.players.slice(playerIndex + 1)
-        ] as [Player, Player]
+        ] as [Player, Player],
+        actionsUsed: {
+          buy: false,
+          heroAction: false,
+          unitAction: false
+        }
       };
     });
   }, []);
@@ -138,6 +158,16 @@ export const useGameState = () => {
   // Buy a card from the shop
   const buyCard = useCallback((cardIndex: number) => {
     setGameState(prevState => {
+      // Check if the player has already used their buy action
+      if (prevState.actionsUsed.buy) {
+        toast({
+          title: "Action already used!",
+          description: "You can only buy one item per turn.",
+          variant: "destructive"
+        });
+        return prevState;
+      }
+
       const playerIndex = prevState.currentPlayer - 1;
       const player = prevState.players[playerIndex];
       const card = prevState.shop[cardIndex];
@@ -244,7 +274,11 @@ export const useGameState = () => {
           newPlayer,
           ...prevState.players.slice(playerIndex + 1)
         ] as [Player, Player],
-        shop: newShop
+        shop: newShop,
+        actionsUsed: {
+          ...prevState.actionsUsed,
+          buy: true
+        }
       };
     });
   }, []);
@@ -287,7 +321,12 @@ export const useGameState = () => {
             monsters: newMonsters,
             shop: newShop,
             selectedCard: null,
-            targetingMode: false
+            targetingMode: false,
+            actionsUsed: {
+              buy: false,
+              heroAction: false,
+              unitAction: false
+            }
           };
         default:
           newPhase = 'buy';
@@ -302,9 +341,30 @@ export const useGameState = () => {
     });
   }, []);
 
+  // Check if a player has a provocateur unit
+  const hasProvocateurUnit = useCallback((playerIndex: number, gameState: GameState) => {
+    return gameState.players[playerIndex].units.some(unit => unit.role === 'provocateur');
+  }, []);
+
+  // Get the first provocateur unit index for a player
+  const getProvocateurUnitIndex = useCallback((playerIndex: number, gameState: GameState) => {
+    return gameState.players[playerIndex].units.findIndex(unit => unit.role === 'provocateur');
+  }, []);
+
   // Select a card for an action
   const selectCard = useCallback((card: any, type: 'hero' | 'unit', index?: number) => {
     setGameState(prevState => {
+      // Check if the player has already used the corresponding action
+      if ((type === 'hero' && prevState.actionsUsed.heroAction) || 
+          (type === 'unit' && prevState.actionsUsed.unitAction)) {
+        toast({
+          title: "Action already used!",
+          description: `You can only use one ${type === 'hero' ? 'hero' : 'unit'} action per turn.`,
+          variant: "destructive"
+        });
+        return prevState;
+      }
+
       return {
         ...prevState,
         selectedCard: { card, type, index },
@@ -321,6 +381,31 @@ export const useGameState = () => {
       const { card, type, index } = prevState.selectedCard;
       const attackingPlayer = prevState.players[prevState.currentPlayer - 1];
       const attackValue = card.attack;
+      
+      // Check for provocateurs before allowing attack
+      if (target.type === 'hero' || target.type === 'unit') {
+        const defendingPlayerIndex = (target.playerId || 1) - 1;
+        
+        // Check if the defending player has a provocateur
+        if (hasProvocateurUnit(defendingPlayerIndex, prevState)) {
+          const provocateurIndex = getProvocateurUnitIndex(defendingPlayerIndex, prevState);
+          
+          // If targeting a unit that isn't the provocateur, or targeting the hero
+          if ((target.type === 'unit' && target.index !== provocateurIndex) || 
+              target.type === 'hero') {
+            toast({
+              title: "Cannot attack!",
+              description: "You must attack the provocateur unit first!",
+              variant: "destructive"
+            });
+            return {
+              ...prevState,
+              selectedCard: null,
+              targetingMode: false
+            };
+          }
+        }
+      }
       
       if (target.type === 'hero' && target.playerId) {
         // Attack enemy hero
@@ -363,13 +448,22 @@ export const useGameState = () => {
           hero: updatedHero
         };
         
+        // Mark the action as used
+        const newActionsUsed = { ...prevState.actionsUsed };
+        if (type === 'hero') {
+          newActionsUsed.heroAction = true;
+        } else if (type === 'unit') {
+          newActionsUsed.unitAction = true;
+        }
+        
         return {
           ...prevState,
           players: newPlayers,
           gamePhase: gameOver ? 'gameOver' : prevState.gamePhase,
           winner,
           selectedCard: null,
-          targetingMode: false
+          targetingMode: false,
+          actionsUsed: newActionsUsed
         };
       } else if (target.type === 'unit' && target.playerId && typeof target.index === 'number') {
         // Attack enemy unit
@@ -423,11 +517,20 @@ export const useGameState = () => {
           units: newUnits
         };
         
+        // Mark the action as used
+        const newActionsUsed = { ...prevState.actionsUsed };
+        if (type === 'hero') {
+          newActionsUsed.heroAction = true;
+        } else if (type === 'unit') {
+          newActionsUsed.unitAction = true;
+        }
+        
         return {
           ...prevState,
           players: newPlayers,
           selectedCard: null,
-          targetingMode: false
+          targetingMode: false,
+          actionsUsed: newActionsUsed
         };
       } else if (target.type === 'monster' && typeof target.index === 'number') {
         // Attack monster
@@ -489,12 +592,21 @@ export const useGameState = () => {
           };
         }
         
+        // Mark the action as used
+        const newActionsUsed = { ...prevState.actionsUsed };
+        if (type === 'hero') {
+          newActionsUsed.heroAction = true;
+        } else if (type === 'unit') {
+          newActionsUsed.unitAction = true;
+        }
+        
         return {
           ...prevState,
           players: newPlayers,
           monsters: newMonsters,
           selectedCard: null,
-          targetingMode: false
+          targetingMode: false,
+          actionsUsed: newActionsUsed
         };
       }
       
@@ -504,7 +616,7 @@ export const useGameState = () => {
         targetingMode: false
       };
     });
-  }, []);
+  }, [hasProvocateurUnit, getProvocateurUnitIndex]);
 
   // Cancel an action
   const cancelAction = useCallback(() => {
