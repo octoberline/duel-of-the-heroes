@@ -18,7 +18,11 @@ const MonsterCard: React.FC<MonsterCardProps> = ({ monster, onClick, isTargetabl
         card={monster}
         onClick={onClick}
         isTargetable={isTargetable}
+        className="scale-110" // Enlarged as requested
       />
+      <div className="mt-1 text-xs text-gray-300">
+        From: {monster.location.charAt(0).toUpperCase() + monster.location.slice(1)}
+      </div>
     </div>
   );
 };

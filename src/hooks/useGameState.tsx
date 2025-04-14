@@ -1,5 +1,16 @@
+
 import { useState, useCallback, useEffect } from 'react';
-import { HeroCard, UnitCard, MonsterCard, EquipmentCard, heroes, getRandomMonsters, getRandomUnits, getRandomEquipment } from '../data/cards';
+import { 
+  HeroCard, 
+  UnitCard, 
+  MonsterCard, 
+  EquipmentCard, 
+  heroes, 
+  getRandomEquipment,
+  generateMonsters,
+  generateUnits,
+  Location
+} from '../data/cards';
 import { toast } from '@/components/ui/use-toast';
 
 export type Player = {
@@ -15,6 +26,7 @@ export type Player = {
 
 export type GamePhase = 'setup' | 'chooseHero' | 'player1Turn' | 'player2Turn' | 'gameOver';
 export type ActionPhase = 'buy' | 'heroAction' | 'unitAction' | 'end';
+export type AttackType = 'physical' | 'magical' | null;
 
 export type Target = {
   type: 'hero' | 'unit' | 'monster';
@@ -30,14 +42,21 @@ export type GameState = {
   gamePhase: GamePhase;
   actionPhase: ActionPhase;
   winner: number | null;
-  selectedCard: { card: any; type: 'hero' | 'unit'; index?: number } | null;
+  selectedCardData: { card: any; type: 'hero' | 'unit'; index?: number } | null;
   targetingMode: boolean;
   actionsUsed: {
     buy: boolean;
     heroAction: boolean;
     unitAction: boolean;
   };
+  gameDay: number;
+  currentLocation: Location;
+  locations: Location[];
+  attackType: AttackType;
+  remainingHeroActions: number;
 };
+
+const GAME_LOCATIONS: Location[] = ['forest', 'ruins', 'catacombs', 'necropolis', 'chthonian', 'crypt'];
 
 const initialPlayer: Player = {
   id: 0,
@@ -61,13 +80,18 @@ const initialGameState: GameState = {
   gamePhase: 'setup',
   actionPhase: 'buy',
   winner: null,
-  selectedCard: null,
+  selectedCardData: null,
   targetingMode: false,
   actionsUsed: {
     buy: false,
     heroAction: false,
     unitAction: false
-  }
+  },
+  gameDay: 1,
+  currentLocation: 'forest',
+  locations: GAME_LOCATIONS,
+  attackType: null,
+  remainingHeroActions: 0
 };
 
 // Helper function to reduce card costs for game balance
@@ -80,11 +104,12 @@ const reduceCost = (card: UnitCard | EquipmentCard): UnitCard | EquipmentCard =>
   return card;
 };
 
-// Helper function to reduce monster health for game balance
-const reduceMonsterHealth = (monster: MonsterCard): MonsterCard => {
-  // Reduce health by approximately 25%, with a minimum of 2
-  const newHealth = Math.max(2, Math.floor(monster.health * 0.75));
-  return { ...monster, health: newHealth };
+// Helper function to determine the current location based on the game day
+const getLocationForDay = (day: number): Location => {
+  // Each location lasts for 3 days
+  // 0-based index to access the locations array
+  const locationIndex = Math.min(Math.floor((day - 1) / 3), GAME_LOCATIONS.length - 1);
+  return GAME_LOCATIONS[locationIndex];
 };
 
 export const useGameState = () => {
@@ -123,12 +148,11 @@ export const useGameState = () => {
       let newShop = prevState.shop;
       
       if (bothPlayersSelectedHeroes) {
-        // Get monsters with reduced health
-        const baseMonsters = getRandomMonsters(2);
-        newMonsters = baseMonsters.map(reduceMonsterHealth);
+        // Get monsters based on the starting location (forest)
+        newMonsters = generateMonsters('forest', 2);
         
         // Get shop cards with reduced costs
-        const baseShopCards = [...getRandomUnits(1), ...getRandomEquipment(1)];
+        const baseShopCards = [...generateUnits('forest', 1), ...getRandomEquipment(1)];
         newShop = baseShopCards.map(reduceCost);
       }
       
@@ -143,7 +167,8 @@ export const useGameState = () => {
           buy: false,
           heroAction: false,
           unitAction: false
-        }
+        },
+        remainingHeroActions: newPlayers[0].hero?.sp || 0
       };
     });
   }, []);
@@ -154,14 +179,39 @@ export const useGameState = () => {
       const playerIndex = playerId - 1;
       const player = prevState.players[playerIndex];
       
+      // Calculate which location we should be in based on the game day
+      let newDay = prevState.gameDay;
+      if (playerId === 1) {
+        // Increment the day when player 1's turn starts (except for the first turn)
+        newDay = prevState.gameDay === 1 && prevState.currentPlayer === 1 ? 1 : prevState.gameDay + 1;
+      }
+      
+      // Check if we've reached the game end (day 19)
+      if (newDay > 18) {
+        return {
+          ...prevState,
+          gamePhase: 'gameOver',
+          winner: null, // No winner, both players lose
+          gameDay: newDay
+        };
+      }
+      
+      // Determine the current location based on the day
+      const currentLocation = getLocationForDay(newDay);
+      
       // Give 5 gold at the start of turn
       const newGold = 5;
+      
+      // Reset the hero's actions based on their speed
+      const heroSpeed = player.hero?.sp || 0;
       
       return {
         ...prevState,
         currentPlayer: playerId,
         gamePhase: playerId === 1 ? 'player1Turn' : 'player2Turn',
         actionPhase: 'buy',
+        gameDay: newDay,
+        currentLocation,
         players: [
           ...prevState.players.slice(0, playerIndex),
           { ...player, gold: newGold },
@@ -171,7 +221,9 @@ export const useGameState = () => {
           buy: false,
           heroAction: false,
           unitAction: false
-        }
+        },
+        attackType: null,
+        remainingHeroActions: heroSpeed
       };
     });
   }, []);
@@ -256,21 +308,36 @@ export const useGameState = () => {
           const bonusStat = equipment.bonusStat;
           const bonusAmount = equipment.bonusAmount;
           
-          if (bonusStat === 'attack') {
+          if (bonusStat === 'ap') {
             newPlayer.hero = {
               ...newPlayer.hero,
-              attack: newPlayer.hero.attack + bonusAmount
+              ap: newPlayer.hero.ap + bonusAmount
             };
-          } else if (bonusStat === 'defense') {
+          } else if (bonusStat === 'mp') {
             newPlayer.hero = {
               ...newPlayer.hero,
-              defense: newPlayer.hero.defense + bonusAmount
+              mp: newPlayer.hero.mp + bonusAmount
             };
-          } else if (bonusStat === 'health') {
+          } else if (bonusStat === 'dp') {
             newPlayer.hero = {
               ...newPlayer.hero,
-              maxHealth: newPlayer.hero.maxHealth + bonusAmount,
-              health: newPlayer.hero.health + bonusAmount
+              dp: newPlayer.hero.dp + bonusAmount
+            };
+          } else if (bonusStat === 'rp') {
+            newPlayer.hero = {
+              ...newPlayer.hero,
+              rp: newPlayer.hero.rp + bonusAmount
+            };
+          } else if (bonusStat === 'sp') {
+            newPlayer.hero = {
+              ...newPlayer.hero,
+              sp: newPlayer.hero.sp + bonusAmount
+            };
+          } else if (bonusStat === 'hp') {
+            newPlayer.hero = {
+              ...newPlayer.hero,
+              maxHp: newPlayer.hero.maxHp + bonusAmount,
+              hp: newPlayer.hero.hp + bonusAmount
             };
           }
         }
@@ -281,9 +348,9 @@ export const useGameState = () => {
       let newCard;
       
       if (card.type === 'unit') {
-        newCard = getRandomUnits(1)[0];
+        newCard = reduceCost(generateUnits(prevState.currentLocation, 1)[0]);
       } else {
-        newCard = getRandomEquipment(1)[0];
+        newCard = reduceCost(getRandomEquipment(1)[0]);
       }
       
       newShop[cardIndex] = newCard;
@@ -317,8 +384,9 @@ export const useGameState = () => {
         );
       
       case 'heroAction':
-        // Skip hero action if it's already used
-        return currentState.actionsUsed.heroAction;
+        // Skip hero action if hero has no actions left or no attack
+        return currentState.remainingHeroActions <= 0 || 
+               (player.hero && player.hero.ap === 0 && player.hero.mp === 0);
       
       case 'unitAction':
         // Skip unit action if player has no units or already used the action
@@ -353,32 +421,21 @@ export const useGameState = () => {
           let newMonsters = [...prevState.monsters];
           if (newMonsters.length < 2) {
             const monstersToAdd = 2 - newMonsters.length;
-            const baseNewMonsters = getRandomMonsters(monstersToAdd);
-            const balancedNewMonsters = baseNewMonsters.map(reduceMonsterHealth);
-            newMonsters = [...newMonsters, ...balancedNewMonsters];
+            // Generate new monsters based on current location
+            const newLocationMonsters = generateMonsters(prevState.currentLocation, monstersToAdd);
+            newMonsters = [...newMonsters, ...newLocationMonsters];
           }
           
           // Refresh shop with reduced costs
-          const baseShopCards = [...getRandomUnits(1), ...getRandomEquipment(1)];
+          // Use current location when generating units
+          const baseShopCards = [
+            ...generateUnits(prevState.currentLocation, 1), 
+            ...getRandomEquipment(1)
+          ];
           const newShop = baseShopCards.map(reduceCost);
           
-          return {
-            ...prevState,
-            currentPlayer: newCurrentPlayer,
-            gamePhase: newCurrentPlayer === 1 ? 'player1Turn' : 'player2Turn',
-            actionPhase: 'buy',
-            monsters: newMonsters,
-            shop: newShop,
-            selectedCard: null,
-            targetingMode: false,
-            actionsUsed: {
-              buy: false,
-              heroAction: false,
-              unitAction: false
-            }
-          };
-        default:
-          newPhase = 'buy';
+          // Start the next player's turn
+          return startTurn(newCurrentPlayer);
       }
 
       // Check if we should skip the next phase
@@ -389,8 +446,9 @@ export const useGameState = () => {
         const updatedState = {
           ...prevState,
           actionPhase: newPhase,
-          selectedCard: null,
-          targetingMode: false
+          selectedCardData: null,
+          targetingMode: false,
+          attackType: null
         };
 
         // Skip heroAction phase
@@ -415,11 +473,12 @@ export const useGameState = () => {
       return {
         ...prevState,
         actionPhase: newPhase,
-        selectedCard: null,
-        targetingMode: false
+        selectedCardData: null,
+        targetingMode: false,
+        attackType: null
       };
     });
-  }, [shouldSkipPhase]);
+  }, [shouldSkipPhase, startTurn]);
 
   // Check if a player has a provocateur unit
   const hasProvocateurUnit = useCallback((playerIndex: number, gameState: GameState) => {
@@ -431,50 +490,100 @@ export const useGameState = () => {
     return gameState.players[playerIndex].units.findIndex(unit => unit.role === 'provocateur');
   }, []);
 
+  // Select attack type (physical or magical)
+  const selectAttackType = useCallback((type: 'physical' | 'magical') => {
+    setGameState(prevState => {
+      return {
+        ...prevState,
+        attackType: type
+      };
+    });
+  }, []);
+
   // Select a card for an action
   const selectCard = useCallback((card: any, type: 'hero' | 'unit', index?: number) => {
     setGameState(prevState => {
       // Check if the player has already used the corresponding action
-      if ((type === 'hero' && prevState.actionsUsed.heroAction) || 
-          (type === 'unit' && prevState.actionsUsed.unitAction)) {
+      if (type === 'unit' && prevState.actionsUsed.unitAction) {
         toast({
           title: "Action already used!",
-          description: `You can only use one ${type === 'hero' ? 'hero' : 'unit'} action per turn.`,
+          description: `You can only use one unit action per turn.`,
           variant: "destructive"
         });
         return prevState;
       }
 
+      // For hero actions, check remaining actions instead
+      if (type === 'hero' && prevState.remainingHeroActions <= 0) {
+        toast({
+          title: "No actions remaining!",
+          description: `Your hero has used all available actions this turn.`,
+          variant: "destructive"
+        });
+        return prevState;
+      }
+
+      // If selecting a hero, determine attack type automatically if needed
+      let attackType = prevState.attackType;
+      
+      if (type === 'hero') {
+        const hero = card as HeroCard;
+        
+        // Auto-select attack type if hero only has one type of attack
+        if (hero.ap > 0 && hero.mp === 0) {
+          attackType = 'physical';
+        } else if (hero.ap === 0 && hero.mp > 0) {
+          attackType = 'magical';
+        }
+        
+        // If hero can use both, and no attack type is selected, show a message
+        if (hero.ap > 0 && hero.mp > 0 && !attackType) {
+          toast({
+            title: "Select attack type",
+            description: `Choose between Physical or Magical attack.`,
+            variant: "default"
+          });
+          return prevState;
+        }
+      }
+
       return {
         ...prevState,
-        selectedCard: { card, type, index },
-        targetingMode: true
+        selectedCardData: { card, type, index },
+        targetingMode: true,
+        attackType
       };
     });
   }, []);
 
-  // Calculate total unit attack power for a player
-  const calculateUnitsTotalAttack = useCallback((units: UnitCard[]) => {
-    return units.reduce((total, unit) => total + unit.attack, 0);
-  }, []);
-
-  // Calculate total unit health for a player
-  const calculateUnitsTotalHealth = useCallback((units: UnitCard[]) => {
-    return units.reduce((total, unit) => total + unit.health, 0);
+  // Calculate total unit stats
+  const calculateUnitStats = useCallback((units: UnitCard[], statType: 'hp' | 'ap' | 'mp') => {
+    return units.reduce((total, unit) => total + unit[statType], 0);
   }, []);
 
   // Attack a target
   const attack = useCallback((target: Target) => {
     setGameState(prevState => {
-      if (!prevState.selectedCard) return prevState;
+      if (!prevState.selectedCardData || !prevState.attackType) return prevState;
       
-      const { card, type } = prevState.selectedCard;
+      const { card, type } = prevState.selectedCardData;
       const attackingPlayer = prevState.players[prevState.currentPlayer - 1];
-      let attackValue = card.attack;
+      let attackValue = 0;
       
-      // If unit attack, use combined attack of all units
-      if (type === 'unit') {
-        attackValue = calculateUnitsTotalAttack(attackingPlayer.units);
+      // Determine attack value based on attack type
+      if (type === 'hero') {
+        if (prevState.attackType === 'physical') {
+          attackValue = card.ap;
+        } else {
+          attackValue = card.mp;
+        }
+      } else if (type === 'unit') {
+        // For units, use the total attack value of all units
+        if (prevState.attackType === 'physical') {
+          attackValue = calculateUnitStats(attackingPlayer.units, 'ap');
+        } else {
+          attackValue = calculateUnitStats(attackingPlayer.units, 'mp');
+        }
       }
       
       // Check for provocateurs before allowing attack
@@ -495,7 +604,7 @@ export const useGameState = () => {
             });
             return {
               ...prevState,
-              selectedCard: null,
+              selectedCardData: null,
               targetingMode: false
             };
           }
@@ -509,14 +618,23 @@ export const useGameState = () => {
         
         if (!defendingPlayer.hero) return prevState;
         
-        // Calculate damage (reduced by defense)
-        const damage = Math.max(1, attackValue - defendingPlayer.hero.defense);
-        const newHealth = Math.max(0, defendingPlayer.hero.health - damage);
+        // Calculate damage based on attack type
+        let damage = attackValue;
+        
+        // Physical attacks are reduced by Magic Resistance (RP)
+        // Magical attacks are reduced by Physical Defense (DP)
+        if (prevState.attackType === 'physical') {
+          damage = Math.max(1, attackValue - defendingPlayer.hero.rp);
+        } else { // magical
+          damage = Math.max(1, attackValue - defendingPlayer.hero.dp);
+        }
+        
+        const newHealth = Math.max(0, defendingPlayer.hero.hp - damage);
         
         // Update hero health
         const updatedHero = {
           ...defendingPlayer.hero,
-          health: newHealth
+          hp: newHealth
         };
         
         // Check for game over
@@ -545,9 +663,11 @@ export const useGameState = () => {
         
         // Mark the action as used
         const newActionsUsed = { ...prevState.actionsUsed };
-        if (type === 'hero') {
-          newActionsUsed.heroAction = true;
-        } else if (type === 'unit') {
+        const newRemainingHeroActions = type === 'hero' ? 
+          prevState.remainingHeroActions - 1 : 
+          prevState.remainingHeroActions;
+        
+        if (type === 'unit') {
           newActionsUsed.unitAction = true;
         }
         
@@ -556,9 +676,11 @@ export const useGameState = () => {
           players: newPlayers,
           gamePhase: gameOver ? 'gameOver' : prevState.gamePhase,
           winner,
-          selectedCard: null,
+          selectedCardData: null,
           targetingMode: false,
-          actionsUsed: newActionsUsed
+          actionsUsed: newActionsUsed,
+          remainingHeroActions: newRemainingHeroActions,
+          attackType: null
         };
       } else if (target.type === 'unit' && target.playerId && typeof target.index === 'number') {
         // Attack enemy units
@@ -566,7 +688,7 @@ export const useGameState = () => {
         const defendingPlayer = prevState.players[defendingPlayerIndex];
         
         // Apply the new combat system - calculate total enemy unit health
-        const totalEnemyUnitHealth = calculateUnitsTotalHealth(defendingPlayer.units);
+        const totalEnemyUnitHealth = calculateUnitStats(defendingPlayer.units, 'hp');
         
         // If attack is less than total health, no damage occurs
         if (attackValue < totalEnemyUnitHealth) {
@@ -578,24 +700,28 @@ export const useGameState = () => {
           
           // Mark the action as used
           const newActionsUsed = { ...prevState.actionsUsed };
-          if (type === 'hero') {
-            newActionsUsed.heroAction = true;
-          } else if (type === 'unit') {
+          const newRemainingHeroActions = type === 'hero' ? 
+            prevState.remainingHeroActions - 1 : 
+            prevState.remainingHeroActions;
+            
+          if (type === 'unit') {
             newActionsUsed.unitAction = true;
           }
           
           return {
             ...prevState,
-            selectedCard: null,
+            selectedCardData: null,
             targetingMode: false,
-            actionsUsed: newActionsUsed
+            actionsUsed: newActionsUsed,
+            remainingHeroActions: newRemainingHeroActions,
+            attackType: null
           };
         }
         
         // If attack is greater than or equal to total health, all units are destroyed
         toast({
           title: `Units destroyed!`,
-          description: `Your attack (${attackValue}) destroyed all enemy units (${totalEnemyUnitHealth} total health)!`,
+          description: `Your ${prevState.attackType} attack (${attackValue}) destroyed all enemy units (${totalEnemyUnitHealth} total health)!`,
           variant: "default"
         });
         
@@ -607,18 +733,22 @@ export const useGameState = () => {
         
         // Mark the action as used
         const newActionsUsed = { ...prevState.actionsUsed };
-        if (type === 'hero') {
-          newActionsUsed.heroAction = true;
-        } else if (type === 'unit') {
+        const newRemainingHeroActions = type === 'hero' ? 
+          prevState.remainingHeroActions - 1 : 
+          prevState.remainingHeroActions;
+          
+        if (type === 'unit') {
           newActionsUsed.unitAction = true;
         }
         
         return {
           ...prevState,
           players: newPlayers,
-          selectedCard: null,
+          selectedCardData: null,
           targetingMode: false,
-          actionsUsed: newActionsUsed
+          actionsUsed: newActionsUsed,
+          remainingHeroActions: newRemainingHeroActions,
+          attackType: null
         };
       } else if (target.type === 'monster' && typeof target.index === 'number') {
         // Attack monster
@@ -627,26 +757,30 @@ export const useGameState = () => {
         if (!targetMonster) return prevState;
         
         // Apply the new combat system - if damage is less than monster health, no damage occurs
-        if (attackValue < targetMonster.health) {
+        if (attackValue < targetMonster.hp) {
           toast({
             title: `Attack unsuccessful!`,
-            description: `Your attack (${attackValue}) was less than the monster's health (${targetMonster.health})! No damage dealt.`,
+            description: `Your ${prevState.attackType} attack (${attackValue}) was less than the monster's health (${targetMonster.hp})! No damage dealt.`,
             variant: "default"
           });
           
           // Mark the action as used
           const newActionsUsed = { ...prevState.actionsUsed };
-          if (type === 'hero') {
-            newActionsUsed.heroAction = true;
-          } else if (type === 'unit') {
+          const newRemainingHeroActions = type === 'hero' ? 
+            prevState.remainingHeroActions - 1 : 
+            prevState.remainingHeroActions;
+            
+          if (type === 'unit') {
             newActionsUsed.unitAction = true;
           }
           
           return {
             ...prevState,
-            selectedCard: null,
+            selectedCardData: null,
             targetingMode: false,
-            actionsUsed: newActionsUsed
+            actionsUsed: newActionsUsed,
+            remainingHeroActions: newRemainingHeroActions,
+            attackType: null
           };
         }
         
@@ -659,27 +793,71 @@ export const useGameState = () => {
           ...prevState.monsters.slice(target.index + 1)
         ];
         
+        // NEW: Monster deals damage back to hero
+        const attackingPlayerIndex = prevState.currentPlayer - 1;
+        const attackingHero = attackingPlayer.hero;
+        let updatedHero = attackingHero;
+        
+        if (attackingHero) {
+          // Monster deals damage based on its attack stats 
+          // Physical attack reduced by hero's DP
+          // Magical attack reduced by hero's RP
+          const monsterPhysicalDamage = Math.max(0, targetMonster.ap - attackingHero.dp);
+          const monsterMagicalDamage = Math.max(0, targetMonster.mp - attackingHero.rp);
+          const totalMonsterDamage = monsterPhysicalDamage + monsterMagicalDamage;
+          
+          if (totalMonsterDamage > 0) {
+            const newHeroHealth = Math.max(0, attackingHero.hp - totalMonsterDamage);
+            updatedHero = {
+              ...attackingHero,
+              hp: newHeroHealth
+            };
+            
+            toast({
+              title: `${targetMonster.name} counterattacked!`,
+              description: `Your hero took ${totalMonsterDamage} damage.`,
+              variant: "default"
+            });
+          }
+        }
+        
         toast({
           title: `Monster defeated!`,
           description: `${targetMonster.name} was defeated! Gained ${goldReward} gold!`,
           variant: "default"
         });
         
-        // Update player gold
+        // Update player gold and hero
         const playerIndex = prevState.currentPlayer - 1;
         const player = prevState.players[playerIndex];
         
         const newPlayers = [...prevState.players] as [Player, Player];
         newPlayers[playerIndex] = {
           ...player,
-          gold: player.gold + goldReward
+          gold: player.gold + goldReward,
+          hero: updatedHero
         };
+        
+        // Check if hero died
+        const heroKilled = updatedHero?.hp === 0;
+        const newWinner = heroKilled ? (prevState.currentPlayer === 1 ? 2 : 1) : null;
+        const newGamePhase = heroKilled ? 'gameOver' : prevState.gamePhase;
+        
+        if (heroKilled) {
+          toast({
+            title: `Player ${prevState.currentPlayer} defeated!`,
+            description: `${updatedHero?.name} was killed by monster counterattack!`,
+            variant: "destructive"
+          });
+        }
         
         // Mark the action as used
         const newActionsUsed = { ...prevState.actionsUsed };
-        if (type === 'hero') {
-          newActionsUsed.heroAction = true;
-        } else if (type === 'unit') {
+        const newRemainingHeroActions = type === 'hero' ? 
+          prevState.remainingHeroActions - 1 : 
+          prevState.remainingHeroActions;
+          
+        if (type === 'unit') {
           newActionsUsed.unitAction = true;
         }
         
@@ -687,35 +865,41 @@ export const useGameState = () => {
           ...prevState,
           players: newPlayers,
           monsters: newMonsters,
-          selectedCard: null,
+          selectedCardData: null,
           targetingMode: false,
-          actionsUsed: newActionsUsed
+          actionsUsed: newActionsUsed,
+          remainingHeroActions: newRemainingHeroActions,
+          gamePhase: newGamePhase,
+          winner: newWinner,
+          attackType: null
         };
       }
       
       return {
         ...prevState,
-        selectedCard: null,
-        targetingMode: false
+        selectedCardData: null,
+        targetingMode: false,
+        attackType: null
       };
     });
-  }, [calculateUnitsTotalAttack, calculateUnitsTotalHealth, hasProvocateurUnit, getProvocateurUnitIndex]);
+  }, [calculateUnitStats, hasProvocateurUnit, getProvocateurUnitIndex]);
 
   // Cancel an action
   const cancelAction = useCallback(() => {
     setGameState(prevState => {
       return {
         ...prevState,
-        selectedCard: null,
-        targetingMode: false
+        selectedCardData: null,
+        targetingMode: false,
+        attackType: null
       };
     });
   }, []);
 
   // Check if game is over
   useEffect(() => {
-    if (gameState.gamePhase !== 'gameOver' && (gameState.players[0].hero?.health <= 0 || gameState.players[1].hero?.health <= 0)) {
-      const winner = gameState.players[0].hero?.health <= 0 ? 2 : 1;
+    if (gameState.gamePhase !== 'gameOver' && (gameState.players[0].hero?.hp <= 0 || gameState.players[1].hero?.hp <= 0)) {
+      const winner = gameState.players[0].hero?.hp <= 0 ? 2 : 1;
       setGameState(prevState => ({
         ...prevState,
         gamePhase: 'gameOver',
@@ -753,6 +937,7 @@ export const useGameState = () => {
     nextPhase,
     selectCard,
     attack,
-    cancelAction
+    cancelAction,
+    selectAttackType
   };
 };

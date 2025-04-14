@@ -26,6 +26,7 @@ const UnitCard: React.FC<UnitCardProps> = ({ unit, onClick, isSelected, isTarget
         isSelected={isSelected}
         isTargetable={isTargetable}
         isEnemy={isEnemy}
+        className="scale-110" // Enlarged as requested
       />
       {unit.role === 'provocateur' && (
         <div className="mt-1 px-2 py-0.5 bg-red-700 text-white text-xs rounded-full">

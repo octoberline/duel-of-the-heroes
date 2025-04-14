@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { useGameState, GamePhase, ActionPhase } from '@/hooks/useGameState';
+import { useGameState } from '@/hooks/useGameState';
 import { heroes } from '@/data/cards';
 import HeroCard from './HeroCard';
 import UnitCard from './UnitCard';
@@ -8,8 +8,9 @@ import MonsterCard from './MonsterCard';
 import EquipmentCard from './EquipmentCard';
 import Shop from './Shop';
 import PlayerStats from './PlayerStats';
+import LocationBanner from './LocationBanner';
 import { Button } from '@/components/ui/button';
-import { Coins, Sword, Users, Flag, ArrowRightCircle, Shield } from 'lucide-react';
+import { Coins, Sword, Users, Flag, ArrowRightCircle, Shield, Zap } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 
 const GameBoard: React.FC = () => {
@@ -23,7 +24,8 @@ const GameBoard: React.FC = () => {
     nextPhase,
     selectCard,
     attack,
-    cancelAction
+    cancelAction,
+    selectAttackType
   } = useGameState();
 
   const {
@@ -34,9 +36,13 @@ const GameBoard: React.FC = () => {
     gamePhase,
     actionPhase,
     winner,
-    selectedCard,
+    selectedCardData,
     targetingMode,
-    actionsUsed
+    actionsUsed,
+    gameDay,
+    currentLocation,
+    attackType,
+    remainingHeroActions
   } = gameState;
 
   React.useEffect(() => {
@@ -85,14 +91,14 @@ const GameBoard: React.FC = () => {
 
   const handleCardSelect = (cardType: 'hero' | 'unit', card: any, index?: number) => {
     if (!targetingMode && 
-        ((cardType === 'hero' && actionPhase === 'heroAction' && !actionsUsed.heroAction) || 
+        ((cardType === 'hero' && actionPhase === 'heroAction' && remainingHeroActions > 0) || 
          (cardType === 'unit' && actionPhase === 'unitAction' && !actionsUsed.unitAction))) {
       selectCard(card, cardType, index);
     }
   };
 
   const handleTargetSelect = (targetType: 'hero' | 'unit' | 'monster', targetPlayerId?: number, index?: number) => {
-    if (targetingMode && selectedCard) {
+    if (targetingMode && selectedCardData) {
       if (targetType !== 'monster' && targetPlayerId) {
         // Check for provocateur when targeting enemy units or hero
         if (!isValidTarget(targetType, targetPlayerId, index)) {
@@ -111,51 +117,88 @@ const GameBoard: React.FC = () => {
     }
   };
 
+  const handleAttackTypeSelect = (type: 'physical' | 'magical') => {
+    selectAttackType(type);
+  };
+
   const renderGamePhase = () => {
     switch (gamePhase) {
       case 'chooseHero':
-        return (
-          <div className="flex flex-col items-center">
-            <h2 className="text-2xl font-bold mb-6">
-              {players[0].hero ? 'Player 2, choose your hero!' : 'Player 1, choose your hero!'}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {heroes.map((hero, index) => (
-                <div key={hero.id} className="flex flex-col items-center">
-                  <HeroCard hero={hero} onClick={() => handleHeroSelect(index)} />
-                  <Button 
-                    className="mt-4 action-button"
-                    onClick={() => handleHeroSelect(index)}
-                  >
-                    Select {hero.name}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return renderHeroSelection();
       
       case 'player1Turn':
       case 'player2Turn':
         return renderGameBoard();
       
       case 'gameOver':
-        return (
-          <div className="flex flex-col items-center justify-center p-8">
-            <h2 className="text-4xl font-bold mb-6 text-game-gold">Game Over!</h2>
-            <p className="text-2xl mb-8">Player {winner} wins!</p>
-            <Button 
-              className="action-button text-xl px-8 py-6"
-              onClick={() => resetGame()}
-            >
-              Play Again
-            </Button>
-          </div>
-        );
+        return renderGameOver();
       
       default:
         return <div>Loading game...</div>;
     }
+  };
+
+  const renderHeroSelection = () => {
+    return (
+      <div className="flex flex-col items-center">
+        <h2 className="text-2xl font-bold mb-6">
+          {players[0].hero ? 'Player 2, choose your hero!' : 'Player 1, choose your hero!'}
+        </h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="col-span-full text-xl font-bold mb-2">Mage Class</div>
+          {heroes.filter(h => h.heroClass === 'mage').map((hero, index) => (
+            <div key={hero.id} className="flex flex-col items-center">
+              <HeroCard hero={hero} onClick={() => handleHeroSelect(heroes.indexOf(hero))} />
+              <Button 
+                className="mt-4 action-button"
+                onClick={() => handleHeroSelect(heroes.indexOf(hero))}
+              >
+                Select {hero.name}
+              </Button>
+            </div>
+          ))}
+          
+          <div className="col-span-full text-xl font-bold mb-2 mt-8">Warrior Class</div>
+          {heroes.filter(h => h.heroClass === 'warrior').map((hero, index) => (
+            <div key={hero.id} className="flex flex-col items-center">
+              <HeroCard hero={hero} onClick={() => handleHeroSelect(heroes.indexOf(hero))} />
+              <Button 
+                className="mt-4 action-button"
+                onClick={() => handleHeroSelect(heroes.indexOf(hero))}
+              >
+                Select {hero.name}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGameOver = () => {
+    let resultText;
+    
+    if (gameDay > 18) {
+      resultText = "Game ended after 18 days. Both players lose!";
+    } else if (winner) {
+      resultText = `Player ${winner} wins!`;
+    } else {
+      resultText = "Game Over!";
+    }
+    
+    return (
+      <div className="flex flex-col items-center justify-center p-8">
+        <h2 className="text-4xl font-bold mb-6 text-game-gold">Game Over!</h2>
+        <p className="text-2xl mb-8">{resultText}</p>
+        <Button 
+          className="action-button text-xl px-8 py-6"
+          onClick={() => resetGame()}
+        >
+          Play Again
+        </Button>
+      </div>
+    );
   };
 
   const renderPhaseIndicator = () => {
@@ -171,8 +214,8 @@ const GameBoard: React.FC = () => {
         break;
       case 'heroAction':
         phaseText = 'Hero Action Phase';
-        phaseIcon = <Sword className="h-5 w-5" />;
-        actionsRemaining = actionsUsed.heroAction ? '(Action used)' : '(1 attack available)';
+        phaseIcon = attackType === 'physical' ? <Sword className="h-5 w-5" /> : <Zap className="h-5 w-5" />;
+        actionsRemaining = `(${remainingHeroActions} action${remainingHeroActions !== 1 ? 's' : ''} remaining)`;
         break;
       case 'unitAction':
         phaseText = 'Unit Action Phase';
@@ -201,20 +244,28 @@ const GameBoard: React.FC = () => {
     const otherPlayerObj = players[currentPlayer === 1 ? 1 : 0];
     
     // Determine if cards are targetable
-    const isEnemyHeroTargetable = targetingMode && selectedCard && 
+    const isEnemyHeroTargetable = targetingMode && selectedCardData && 
       !hasProvocateur(currentPlayer === 1 ? 1 : 0);
     
-    const areEnemyUnitsTargetable = targetingMode && selectedCard;
-    const areMonstersTargetable = targetingMode && selectedCard;
+    const areEnemyUnitsTargetable = targetingMode && selectedCardData;
+    const areMonstersTargetable = targetingMode && selectedCardData;
     
     // Calculate total unit stats for display
-    const currentPlayerTotalAttack = currentPlayerObj.units.reduce((total, unit) => total + unit.attack, 0);
-    const currentPlayerTotalHealth = currentPlayerObj.units.reduce((total, unit) => total + unit.health, 0);
-    const enemyPlayerTotalAttack = otherPlayerObj.units.reduce((total, unit) => total + unit.attack, 0);
-    const enemyPlayerTotalHealth = otherPlayerObj.units.reduce((total, unit) => total + unit.health, 0);
+    const currentPlayerTotalAttack = currentPlayerObj.units.reduce((total, unit) => total + unit.ap + unit.mp, 0);
+    const currentPlayerTotalHealth = currentPlayerObj.units.reduce((total, unit) => total + unit.hp, 0);
+    const enemyPlayerTotalAttack = otherPlayerObj.units.reduce((total, unit) => total + unit.ap + unit.mp, 0);
+    const enemyPlayerTotalHealth = otherPlayerObj.units.reduce((total, unit) => total + unit.hp, 0);
+    
+    const daysRemaining = 18 - gameDay;
     
     return (
       <div className="w-full">
+        <LocationBanner 
+          location={currentLocation} 
+          day={gameDay} 
+          daysRemaining={daysRemaining}
+        />
+        
         <div className="flex flex-col lg:flex-row gap-6 mb-6">
           <PlayerStats player={players[0]} isCurrentPlayer={currentPlayer === 1} />
           <div className="flex-grow flex justify-center items-center">
@@ -234,7 +285,8 @@ const GameBoard: React.FC = () => {
                 <HeroCard 
                   hero={currentPlayerObj.hero} 
                   onClick={() => handleCardSelect('hero', currentPlayerObj.hero)}
-                  isSelected={selectedCard?.card.id === currentPlayerObj.hero?.id}
+                  isSelected={selectedCardData?.card.id === currentPlayerObj.hero?.id}
+                  onAttackTypeSelect={actionPhase === 'heroAction' && !targetingMode ? handleAttackTypeSelect : undefined}
                 />
               </div>
             )}
@@ -243,12 +295,16 @@ const GameBoard: React.FC = () => {
             {currentPlayerObj.units.length > 0 && (
               <div className="bg-black bg-opacity-20 p-2 rounded-lg mb-3 flex justify-between">
                 <div className="flex items-center gap-1">
-                  <Sword className="h-4 w-4 text-red-400" />
-                  <span>Total Attack: {currentPlayerTotalAttack}</span>
+                  <Swords className="h-4 w-4 text-yellow-500" />
+                  <span>Total AP: {currentPlayerObj.units.reduce((total, unit) => total + unit.ap, 0)}</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Shield className="h-4 w-4 text-green-400" />
-                  <span>Total Health: {currentPlayerTotalHealth}</span>
+                  <Zap className="h-4 w-4 text-blue-500" />
+                  <span>Total MP: {currentPlayerObj.units.reduce((total, unit) => total + unit.mp, 0)}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Heart className="h-4 w-4 text-red-500" />
+                  <span>Total HP: {currentPlayerObj.units.reduce((total, unit) => total + unit.hp, 0)}</span>
                 </div>
               </div>
             )}
@@ -261,7 +317,7 @@ const GameBoard: React.FC = () => {
                   unit={unit}
                   index={index}
                   onClick={() => handleCardSelect('unit', unit, index)}
-                  isSelected={selectedCard?.card.id === unit.id && selectedCard?.index === index}
+                  isSelected={selectedCardData?.card.id === unit.id && selectedCardData?.index === index}
                 />
               ))}
               {currentPlayerObj.units.length === 0 && (
@@ -359,12 +415,16 @@ const GameBoard: React.FC = () => {
             {otherPlayerObj.units.length > 0 && (
               <div className="bg-black bg-opacity-20 p-2 rounded-lg mb-3 flex justify-between">
                 <div className="flex items-center gap-1">
-                  <Sword className="h-4 w-4 text-red-400" />
-                  <span>Total Attack: {enemyPlayerTotalAttack}</span>
+                  <Swords className="h-4 w-4 text-yellow-500" />
+                  <span>Total AP: {otherPlayerObj.units.reduce((total, unit) => total + unit.ap, 0)}</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Shield className="h-4 w-4 text-green-400" />
-                  <span>Total Health: {enemyPlayerTotalHealth}</span>
+                  <Zap className="h-4 w-4 text-blue-500" />
+                  <span>Total MP: {otherPlayerObj.units.reduce((total, unit) => total + unit.mp, 0)}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Heart className="h-4 w-4 text-red-500" />
+                  <span>Total HP: {otherPlayerObj.units.reduce((total, unit) => total + unit.hp, 0)}</span>
                 </div>
               </div>
             )}
@@ -391,8 +451,10 @@ const GameBoard: React.FC = () => {
         </div>
         
         {targetingMode && (
-          <div className="fixed bottom-4 right-4 bg-black bg-opacity-80 p-4 rounded-lg shadow-lg">
-            <p className="text-lg font-bold mb-2">Select a target</p>
+          <div className="fixed bottom-4 right-4 bg-black bg-opacity-80 p-4 rounded-lg shadow-lg z-50">
+            <p className="text-lg font-bold mb-2">
+              Select a target for {attackType === 'physical' ? 'Physical Attack' : 'Magical Attack'}
+            </p>
             <p className="text-sm">Click on an enemy hero, unit, or monster to attack</p>
           </div>
         )}
