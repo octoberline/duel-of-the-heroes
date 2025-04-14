@@ -1,4 +1,3 @@
-
 import { useState, useCallback, useEffect } from 'react';
 import { HeroCard, UnitCard, MonsterCard, EquipmentCard, heroes, getRandomMonsters, getRandomUnits, getRandomEquipment } from '../data/cards';
 import { toast } from '@/components/ui/use-toast';
@@ -71,6 +70,23 @@ const initialGameState: GameState = {
   }
 };
 
+// Helper function to reduce card costs for game balance
+const reduceCost = (card: UnitCard | EquipmentCard): UnitCard | EquipmentCard => {
+  if ('cost' in card) {
+    // Reduce cost by approximately 20%, with a minimum of 1
+    const newCost = Math.max(1, Math.floor(card.cost * 0.8));
+    return { ...card, cost: newCost };
+  }
+  return card;
+};
+
+// Helper function to reduce monster health for game balance
+const reduceMonsterHealth = (monster: MonsterCard): MonsterCard => {
+  // Reduce health by approximately 25%, with a minimum of 2
+  const newHealth = Math.max(2, Math.floor(monster.health * 0.75));
+  return { ...monster, health: newHealth };
+};
+
 export const useGameState = () => {
   const [gameState, setGameState] = useState<GameState>(initialGameState);
 
@@ -107,8 +123,13 @@ export const useGameState = () => {
       let newShop = prevState.shop;
       
       if (bothPlayersSelectedHeroes) {
-        newMonsters = getRandomMonsters(2);
-        newShop = [...getRandomUnits(1), ...getRandomEquipment(1)];
+        // Get monsters with reduced health
+        const baseMonsters = getRandomMonsters(2);
+        newMonsters = baseMonsters.map(reduceMonsterHealth);
+        
+        // Get shop cards with reduced costs
+        const baseShopCards = [...getRandomUnits(1), ...getRandomEquipment(1)];
+        newShop = baseShopCards.map(reduceCost);
       }
       
       return {
@@ -283,6 +304,31 @@ export const useGameState = () => {
     });
   }, []);
 
+  // Check if the player can skip the current phase
+  const shouldSkipPhase = useCallback((currentState: GameState, phase: ActionPhase): boolean => {
+    const playerIndex = currentState.currentPlayer - 1;
+    const player = currentState.players[playerIndex];
+
+    switch(phase) {
+      case 'buy':
+        // Skip buy phase if player doesn't have enough gold for any shop card
+        return currentState.shop.every(card => 
+          'cost' in card && player.gold < card.cost
+        );
+      
+      case 'heroAction':
+        // Skip hero action if it's already used
+        return currentState.actionsUsed.heroAction;
+      
+      case 'unitAction':
+        // Skip unit action if player has no units or already used the action
+        return player.units.length === 0 || currentState.actionsUsed.unitAction;
+      
+      default:
+        return false;
+    }
+  }, []);
+
   // Move to the next action phase
   const nextPhase = useCallback(() => {
     setGameState(prevState => {
@@ -307,11 +353,14 @@ export const useGameState = () => {
           let newMonsters = [...prevState.monsters];
           if (newMonsters.length < 2) {
             const monstersToAdd = 2 - newMonsters.length;
-            newMonsters = [...newMonsters, ...getRandomMonsters(monstersToAdd)];
+            const baseNewMonsters = getRandomMonsters(monstersToAdd);
+            const balancedNewMonsters = baseNewMonsters.map(reduceMonsterHealth);
+            newMonsters = [...newMonsters, ...balancedNewMonsters];
           }
           
-          // Refresh shop
-          const newShop = [...getRandomUnits(1), ...getRandomEquipment(1)];
+          // Refresh shop with reduced costs
+          const baseShopCards = [...getRandomUnits(1), ...getRandomEquipment(1)];
+          const newShop = baseShopCards.map(reduceCost);
           
           return {
             ...prevState,
@@ -331,6 +380,37 @@ export const useGameState = () => {
         default:
           newPhase = 'buy';
       }
+
+      // Check if we should skip the next phase
+      if (shouldSkipPhase(prevState, newPhase)) {
+        // If we need to skip the next phase, recursively call nextPhase
+        // We'll do this by returning the current state but with the updated phase
+        // Then in the next render, we'll check again if we need to skip
+        const updatedState = {
+          ...prevState,
+          actionPhase: newPhase,
+          selectedCard: null,
+          targetingMode: false
+        };
+
+        // Skip heroAction phase
+        if (newPhase === 'heroAction' && shouldSkipPhase(updatedState, 'heroAction')) {
+          return {
+            ...updatedState,
+            actionPhase: 'unitAction'
+          };
+        }
+        
+        // Skip unitAction phase
+        if (newPhase === 'unitAction' && shouldSkipPhase(updatedState, 'unitAction')) {
+          return {
+            ...updatedState,
+            actionPhase: 'end'
+          };
+        }
+
+        return updatedState;
+      }
       
       return {
         ...prevState,
@@ -339,7 +419,7 @@ export const useGameState = () => {
         targetingMode: false
       };
     });
-  }, []);
+  }, [shouldSkipPhase]);
 
   // Check if a player has a provocateur unit
   const hasProvocateurUnit = useCallback((playerIndex: number, gameState: GameState) => {
@@ -643,6 +723,25 @@ export const useGameState = () => {
       }));
     }
   }, [gameState.players, gameState.gamePhase]);
+
+  // Automatically advance phase if needed (for example, when player has no gold to buy anything)
+  useEffect(() => {
+    // Only run this effect during player turns and when we're not in the end phase
+    if ((gameState.gamePhase === 'player1Turn' || gameState.gamePhase === 'player2Turn') && 
+        gameState.actionPhase !== 'end' && 
+        !gameState.targetingMode) {
+      
+      // Check if the current phase should be skipped
+      if (shouldSkipPhase(gameState, gameState.actionPhase)) {
+        // Use setTimeout to avoid state updates during rendering
+        const timer = setTimeout(() => {
+          nextPhase();
+        }, 500); // Short delay to make the transition visible
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [gameState, shouldSkipPhase, nextPhase]);
 
   return {
     gameState,
