@@ -18,7 +18,7 @@ const UnitCard: React.FC<UnitCardProps> = ({ unit, onClick, isSelected, isTarget
     <div className="flex flex-col items-center">
       <div className="text-sm font-bold mb-1 flex items-center gap-1">
         {isEnemy ? 'Enemy Unit' : 'Your Unit'} {typeof index === 'number' ? index + 1 : ''}
-        {unit.role === 'provocateur' && <Shield className="h-4 w-4 text-red-500" title="Provocateur" />}
+        {unit.role === 'provocateur' && <Shield className="h-4 w-4 text-red-500" aria-label="Provocateur" />}
       </div>
       <Card
         card={unit}

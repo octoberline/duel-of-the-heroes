@@ -373,14 +373,29 @@ export const useGameState = () => {
     });
   }, []);
 
+  // Calculate total unit attack power for a player
+  const calculateUnitsTotalAttack = useCallback((units: UnitCard[]) => {
+    return units.reduce((total, unit) => total + unit.attack, 0);
+  }, []);
+
+  // Calculate total unit health for a player
+  const calculateUnitsTotalHealth = useCallback((units: UnitCard[]) => {
+    return units.reduce((total, unit) => total + unit.health, 0);
+  }, []);
+
   // Attack a target
   const attack = useCallback((target: Target) => {
     setGameState(prevState => {
       if (!prevState.selectedCard) return prevState;
       
-      const { card, type, index } = prevState.selectedCard;
+      const { card, type } = prevState.selectedCard;
       const attackingPlayer = prevState.players[prevState.currentPlayer - 1];
-      const attackValue = card.attack;
+      let attackValue = card.attack;
+      
+      // If unit attack, use combined attack of all units
+      if (type === 'unit') {
+        attackValue = calculateUnitsTotalAttack(attackingPlayer.units);
+      }
       
       // Check for provocateurs before allowing attack
       if (target.type === 'hero' || target.type === 'unit') {
@@ -466,55 +481,48 @@ export const useGameState = () => {
           actionsUsed: newActionsUsed
         };
       } else if (target.type === 'unit' && target.playerId && typeof target.index === 'number') {
-        // Attack enemy unit
+        // Attack enemy units
         const defendingPlayerIndex = target.playerId - 1;
         const defendingPlayer = prevState.players[defendingPlayerIndex];
-        const targetUnit = defendingPlayer.units[target.index];
         
-        if (!targetUnit) return prevState;
+        // Apply the new combat system - calculate total enemy unit health
+        const totalEnemyUnitHealth = calculateUnitsTotalHealth(defendingPlayer.units);
         
-        // Calculate damage
-        const damage = attackValue;
-        const newHealth = Math.max(0, targetUnit.health - damage);
-        
-        // Update unit health or remove if destroyed
-        let newUnits;
-        if (newHealth <= 0) {
-          // Remove unit
-          newUnits = [
-            ...defendingPlayer.units.slice(0, target.index),
-            ...defendingPlayer.units.slice(target.index + 1)
-          ];
-          
+        // If attack is less than total health, no damage occurs
+        if (attackValue < totalEnemyUnitHealth) {
           toast({
-            title: `Unit destroyed!`,
-            description: `${targetUnit.name} was destroyed!`,
+            title: `Attack unsuccessful!`,
+            description: `Your attack (${attackValue}) was less than the enemy units' total health (${totalEnemyUnitHealth})! No damage dealt.`,
             variant: "default"
           });
-        } else {
-          // Update unit health
-          const updatedUnit = {
-            ...targetUnit,
-            health: newHealth
+          
+          // Mark the action as used
+          const newActionsUsed = { ...prevState.actionsUsed };
+          if (type === 'hero') {
+            newActionsUsed.heroAction = true;
+          } else if (type === 'unit') {
+            newActionsUsed.unitAction = true;
+          }
+          
+          return {
+            ...prevState,
+            selectedCard: null,
+            targetingMode: false,
+            actionsUsed: newActionsUsed
           };
-          
-          newUnits = [
-            ...defendingPlayer.units.slice(0, target.index),
-            updatedUnit,
-            ...defendingPlayer.units.slice(target.index + 1)
-          ];
-          
-          toast({
-            title: `Attack successful!`,
-            description: `Dealt ${damage} damage to ${targetUnit.name}!`,
-            variant: "default"
-          });
         }
+        
+        // If attack is greater than or equal to total health, all units are destroyed
+        toast({
+          title: `Units destroyed!`,
+          description: `Your attack (${attackValue}) destroyed all enemy units (${totalEnemyUnitHealth} total health)!`,
+          variant: "default"
+        });
         
         const newPlayers = [...prevState.players] as [Player, Player];
         newPlayers[defendingPlayerIndex] = {
           ...defendingPlayer,
-          units: newUnits
+          units: [] // Remove all units
         };
         
         // Mark the action as used
@@ -538,59 +546,54 @@ export const useGameState = () => {
         
         if (!targetMonster) return prevState;
         
-        // Calculate damage
-        const damage = attackValue;
-        const newHealth = Math.max(0, targetMonster.health - damage);
-        
-        let newMonsters;
-        let goldReward = 0;
-        
-        if (newHealth <= 0) {
-          // Monster defeated, gain gold
-          goldReward = targetMonster.goldReward;
-          
-          // Remove monster
-          newMonsters = [
-            ...prevState.monsters.slice(0, target.index),
-            ...prevState.monsters.slice(target.index + 1)
-          ];
-          
+        // Apply the new combat system - if damage is less than monster health, no damage occurs
+        if (attackValue < targetMonster.health) {
           toast({
-            title: `Monster defeated!`,
-            description: `${targetMonster.name} was defeated! Gained ${goldReward} gold!`,
+            title: `Attack unsuccessful!`,
+            description: `Your attack (${attackValue}) was less than the monster's health (${targetMonster.health})! No damage dealt.`,
             variant: "default"
           });
-        } else {
-          // Update monster health
-          const updatedMonster = {
-            ...targetMonster,
-            health: newHealth
+          
+          // Mark the action as used
+          const newActionsUsed = { ...prevState.actionsUsed };
+          if (type === 'hero') {
+            newActionsUsed.heroAction = true;
+          } else if (type === 'unit') {
+            newActionsUsed.unitAction = true;
+          }
+          
+          return {
+            ...prevState,
+            selectedCard: null,
+            targetingMode: false,
+            actionsUsed: newActionsUsed
           };
-          
-          newMonsters = [
-            ...prevState.monsters.slice(0, target.index),
-            updatedMonster,
-            ...prevState.monsters.slice(target.index + 1)
-          ];
-          
-          toast({
-            title: `Attack successful!`,
-            description: `Dealt ${damage} damage to ${targetMonster.name}!`,
-            variant: "default"
-          });
         }
         
-        // Update player gold if monster defeated
+        // If damage is greater than or equal to monster health, monster is defeated
+        const goldReward = targetMonster.goldReward;
+        
+        // Remove monster
+        const newMonsters = [
+          ...prevState.monsters.slice(0, target.index),
+          ...prevState.monsters.slice(target.index + 1)
+        ];
+        
+        toast({
+          title: `Monster defeated!`,
+          description: `${targetMonster.name} was defeated! Gained ${goldReward} gold!`,
+          variant: "default"
+        });
+        
+        // Update player gold
         const playerIndex = prevState.currentPlayer - 1;
         const player = prevState.players[playerIndex];
         
         const newPlayers = [...prevState.players] as [Player, Player];
-        if (goldReward > 0) {
-          newPlayers[playerIndex] = {
-            ...player,
-            gold: player.gold + goldReward
-          };
-        }
+        newPlayers[playerIndex] = {
+          ...player,
+          gold: player.gold + goldReward
+        };
         
         // Mark the action as used
         const newActionsUsed = { ...prevState.actionsUsed };
@@ -616,7 +619,7 @@ export const useGameState = () => {
         targetingMode: false
       };
     });
-  }, [hasProvocateurUnit, getProvocateurUnitIndex]);
+  }, [calculateUnitsTotalAttack, calculateUnitsTotalHealth, hasProvocateurUnit, getProvocateurUnitIndex]);
 
   // Cancel an action
   const cancelAction = useCallback(() => {

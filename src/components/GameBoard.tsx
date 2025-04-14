@@ -207,6 +207,12 @@ const GameBoard: React.FC = () => {
     const areEnemyUnitsTargetable = targetingMode && selectedCard;
     const areMonstersTargetable = targetingMode && selectedCard;
     
+    // Calculate total unit stats for display
+    const currentPlayerTotalAttack = currentPlayerObj.units.reduce((total, unit) => total + unit.attack, 0);
+    const currentPlayerTotalHealth = currentPlayerObj.units.reduce((total, unit) => total + unit.health, 0);
+    const enemyPlayerTotalAttack = otherPlayerObj.units.reduce((total, unit) => total + unit.attack, 0);
+    const enemyPlayerTotalHealth = otherPlayerObj.units.reduce((total, unit) => total + unit.health, 0);
+    
     return (
       <div className="w-full">
         <div className="flex flex-col lg:flex-row gap-6 mb-6">
@@ -230,6 +236,20 @@ const GameBoard: React.FC = () => {
                   onClick={() => handleCardSelect('hero', currentPlayerObj.hero)}
                   isSelected={selectedCard?.card.id === currentPlayerObj.hero?.id}
                 />
+              </div>
+            )}
+            
+            {/* Unit Stats Summary */}
+            {currentPlayerObj.units.length > 0 && (
+              <div className="bg-black bg-opacity-20 p-2 rounded-lg mb-3 flex justify-between">
+                <div className="flex items-center gap-1">
+                  <Sword className="h-4 w-4 text-red-400" />
+                  <span>Total Attack: {currentPlayerTotalAttack}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Shield className="h-4 w-4 text-green-400" />
+                  <span>Total Health: {currentPlayerTotalHealth}</span>
+                </div>
               </div>
             )}
             
@@ -332,6 +352,20 @@ const GameBoard: React.FC = () => {
                   isTargetable={isEnemyHeroTargetable}
                   onClick={() => handleTargetSelect('hero', otherPlayerObj.id)}
                 />
+              </div>
+            )}
+            
+            {/* Enemy Unit Stats Summary */}
+            {otherPlayerObj.units.length > 0 && (
+              <div className="bg-black bg-opacity-20 p-2 rounded-lg mb-3 flex justify-between">
+                <div className="flex items-center gap-1">
+                  <Sword className="h-4 w-4 text-red-400" />
+                  <span>Total Attack: {enemyPlayerTotalAttack}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Shield className="h-4 w-4 text-green-400" />
+                  <span>Total Health: {enemyPlayerTotalHealth}</span>
+                </div>
               </div>
             )}
             
