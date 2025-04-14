@@ -1,3 +1,4 @@
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -61,7 +62,18 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
-				}
+				},
+				// Game-specific colors
+				'game-gold': '#FFD700',
+				'game-purple': '#8B5CF6',
+				'game-red': '#EF4444',
+				'game-blue': '#3B82F6',
+				'game-green': '#10B981',
+				'hero-bg': '#6D28D9',
+				'unit-bg': '#4F46E5',
+				'monster-bg': '#7C3AED',
+				'equip-bg': '#8B5CF6',
+				'table-bg': '#594630',
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
@@ -84,11 +96,30 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'card-hover': {
+					'0%': { transform: 'translateY(0)' },
+					'100%': { transform: 'translateY(-10px)' }
+				},
+				'damage-shake': {
+					'0%': { transform: 'translateX(0)' },
+					'25%': { transform: 'translateX(-5px)' },
+					'50%': { transform: 'translateX(5px)' },
+					'75%': { transform: 'translateX(-5px)' },
+					'100%': { transform: 'translateX(0)' }
+				},
+				'gold-shine': {
+					'0%': { filter: 'brightness(1)' },
+					'50%': { filter: 'brightness(1.3)' },
+					'100%': { filter: 'brightness(1)' }
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'card-hover': 'card-hover 0.3s ease-out forwards',
+				'damage-shake': 'damage-shake 0.3s ease-in-out',
+				'gold-shine': 'gold-shine 2s infinite'
 			}
 		}
 	},
